@@ -10,4 +10,4 @@
 4. Ở **Build and deployment**, chọn **Deploy from a branch**.
 5. Chọn nhánh `main`, thư mục `/root`, rồi lưu.
 
-File chính phải giữ tên `index.html`.
+File chính phải giữ tên `index.html`
