@@ -324,6 +324,7 @@ header {
   min-width: 34px;
   text-align: center;
 }
+.article-item.appendix-item .art-num { min-width: 46px; }
 .article-item .art-title { flex: 1; }
 .article-item:hover { background: var(--gold-pale); border-left-color: var(--gold); color: var(--text); }
 .article-item.active { background: var(--navy); border-left-color: var(--gold); color: white; }
@@ -670,7 +671,7 @@ mark { background: #ffd54f; color: var(--navy-dark); border-radius: 2px; padding
     <div class="header-logo" aria-hidden="true">✈</div>
     <div class="header-title">
       <h1>Thông tư 14/2026/TT-BCA</h1>
-      <p>Chương trình an ninh hàng không và kiểm soát chất lượng an ninh hàng không Việt Nam</p>
+      <p>Quy định chi tiết Chương trình an ninh hàng không và kiểm soát chất lượng an ninh hàng không Việt Nam, được ban hành và có hiệu lực kể từ ngày 03/02/2026.</p>
     </div>
     <div class="header-meta">
       <div><strong>Cơ quan ban hành:</strong> Bộ Công an</div>
@@ -704,13 +705,13 @@ mark { background: #ffd54f; color: var(--navy-dark); border-radius: 2px; padding
 </div>
 
 <div class="app-body" id="appBody">
-  <aside class="sidebar" id="tocDrawer" aria-label="Danh mục điều khoản">
+  <aside class="sidebar" id="tocDrawer" aria-label="Mục lục Thông tư và phụ lục">
     <div class="sidebar-header">
-      <span>📋 Danh mục điều khoản</span>
+      <span>📋 Mục lục văn bản</span>
       <button type="button" class="sidebar-close" id="closeDrawerBtn" aria-label="Đóng mục lục">×</button>
     </div>
     <div class="sidebar-tools">
-      <input type="search" class="sidebar-mini-search" id="tocFilter" placeholder="Lọc nhanh điều khoản..." autocomplete="off">
+      <input type="search" class="sidebar-mini-search" id="tocFilter" placeholder="Lọc nhanh điều/phụ lục..." autocomplete="off">
     </div>
     <div class="sidebar-list" id="sidebarList"></div>
   </aside>
@@ -733,6 +734,10 @@ const DATA = JSON.parse(document.getElementById('app-data').textContent);
 const MAIN_SOURCE_ID = 'tt14-main';
 const RECORDS = DATA.records;
 const MAIN_ARTICLES = RECORDS.filter(r => r.sourceId === MAIN_SOURCE_ID);
+const APPENDIX_RECORDS = DATA.sources
+  .filter(s => s.id !== MAIN_SOURCE_ID)
+  .map(s => RECORDS.find(r => r.sourceId === s.id && r.type === 'Phụ lục') || RECORDS.find(r => r.sourceId === s.id))
+  .filter(Boolean);
 let currentRecordId = null;
 let searchMode = localStorage.getItem('tt14_search_mode') || 'fuzzy';
 let sourceFilter = localStorage.getItem('tt14_source_filter') || 'all';
@@ -762,6 +767,18 @@ function shortSource(source = '') {
     .replace('ĐỀ CƯƠNG ', '')
     .replace('CHƯƠNG TRÌNH ', 'CT ')
     .slice(0, 70);
+}
+function getAppendixBadge(record = {}) {
+  const text = record.title || record.source || '';
+  const match = text.match(/phụ\s*lục\s+([IVXLCDM]+A?|[0-9]+A?)/i);
+  return match ? 'PL ' + match[1].toUpperCase() : 'PL';
+}
+function getAppendixShortTitle(record = {}) {
+  const base = String(record.title || record.source || 'Phụ lục')
+    .replace(/\s*\(Ban hành kèm theo[\s\S]*?\)\s*$/i, '')
+    .replace(/^phụ\s*lục\s+([IVXLCDM]+A?|[0-9]+A?)\s*/i, '')
+    .trim();
+  return base || (record.source || record.title || 'Phụ lục');
 }
 function recordHaystack(r) {
   return [r.title, r.text, r.source, r.type, r.chapter, r.section, r.article ? 'Điều ' + r.article : ''].filter(Boolean).join(' ');
@@ -884,7 +901,48 @@ function makeExcerpt(r, query) {
 }
 
 // ============ SIDEBAR ============
-function buildSidebar(matchArticles = null) {
+function isTocMatch(record, matchRecords = null) {
+  if (!matchRecords) return true;
+  if (matchRecords.has(record.id)) return true;
+  return record.sourceId !== MAIN_SOURCE_ID && matchRecords.has(record.sourceId);
+}
+function setCollapsed(group, label) {
+  const collapsed = label.classList.contains('collapsed');
+  group.querySelectorAll('.article-item').forEach(el => el.style.display = collapsed ? 'none' : '');
+}
+function createChapterLabel(text, group) {
+  const label = document.createElement('div');
+  label.className = 'chapter-label';
+  label.innerHTML = '<span>' + escapeHtml(text) + '</span><span class="ch-toggle">▾</span>';
+  label.addEventListener('click', () => {
+    label.classList.toggle('collapsed');
+    setCollapsed(group, label);
+  });
+  return label;
+}
+function createTocItem(record, options = {}) {
+  const item = document.createElement('div');
+  const isAppendix = options.kind === 'appendix';
+  item.className = 'article-item' + (isAppendix ? ' appendix-item' : '');
+  item.dataset.recordId = record.id;
+  item.dataset.sourceId = record.sourceId || '';
+  item.dataset.type = isAppendix ? 'appendix' : 'article';
+
+  const badge = isAppendix ? getAppendixBadge(record) : '§' + Number(record.article);
+  const rawTitle = isAppendix ? getAppendixShortTitle(record) : String(record.title || '').replace(/^Điều \d+\.\s*/, '');
+  const searchText = [badge, rawTitle, record.title, record.source, record.article].filter(Boolean).join(' ');
+  item.dataset.article = String(record.article || badge);
+  item.dataset.title = normalizeText(searchText);
+
+  const isActive = record.id === currentRecordId || (isAppendix && currentRecordId && RECORDS.some(r => r.id === currentRecordId && r.sourceId === record.sourceId));
+  if (isActive) item.classList.add('active');
+
+  const titleShort = rawTitle.length > 66 ? rawTitle.slice(0, 66) + '…' : rawTitle;
+  item.innerHTML = '<span class="art-num">' + escapeHtml(badge) + '</span><span class="art-title">' + escapeHtml(titleShort) + '</span>';
+  item.addEventListener('click', () => { closeDrawer(); showRecord(record.id); });
+  return item;
+}
+function buildSidebar(matchRecords = null) {
   const container = $('sidebarList');
   container.innerHTML = '';
   const groups = new Map();
@@ -895,36 +953,37 @@ function buildSidebar(matchArticles = null) {
   });
 
   groups.forEach((arts, ch) => {
-    const visibleArts = matchArticles ? arts.filter(a => matchArticles.has(Number(a.article))) : arts;
-    if (matchArticles && visibleArts.length === 0) return;
+    const visibleArts = matchRecords ? arts.filter(a => isTocMatch(a, matchRecords)) : arts;
+    if (matchRecords && visibleArts.length === 0) return;
     const group = document.createElement('div');
     group.className = 'chapter-group';
-
-    const label = document.createElement('div');
-    label.className = 'chapter-label';
-    label.innerHTML = '<span>' + escapeHtml(ch) + '</span><span class="ch-toggle">▾</span>';
-    label.addEventListener('click', () => {
-      label.classList.toggle('collapsed');
-      group.querySelectorAll('.article-item').forEach(el => el.style.display = label.classList.contains('collapsed') ? 'none' : '');
-    });
-    group.appendChild(label);
+    group.appendChild(createChapterLabel(ch, group));
 
     arts.forEach(art => {
-      const num = Number(art.article);
-      const item = document.createElement('div');
-      item.className = 'article-item';
-      item.dataset.article = String(num);
-      item.dataset.title = normalizeText(art.title);
-      if (matchArticles && !matchArticles.has(num)) item.classList.add('hidden');
-      if (matchArticles && matchArticles.has(num)) item.classList.add('match');
-      if (art.id === currentRecordId) item.classList.add('active');
-      const titleShort = art.title.replace(/^Điều \d+\.\s*/, '');
-      item.innerHTML = '<span class="art-num">§' + num + '</span><span class="art-title">' + escapeHtml(titleShort.length > 66 ? titleShort.slice(0,66) + '…' : titleShort) + '</span>';
-      item.addEventListener('click', () => { closeDrawer(); showRecord(art.id); });
+      const matched = isTocMatch(art, matchRecords);
+      const item = createTocItem(art, { kind: 'article' });
+      if (matchRecords && !matched) item.classList.add('hidden');
+      if (matchRecords && matched) item.classList.add('match');
       group.appendChild(item);
     });
     container.appendChild(group);
   });
+
+  const visibleAppendices = matchRecords ? APPENDIX_RECORDS.filter(a => isTocMatch(a, matchRecords)) : APPENDIX_RECORDS;
+  if (!matchRecords || visibleAppendices.length) {
+    const appendixGroup = document.createElement('div');
+    appendixGroup.className = 'chapter-group appendix-group';
+    appendixGroup.appendChild(createChapterLabel('Các phụ lục ban hành kèm theo', appendixGroup));
+
+    APPENDIX_RECORDS.forEach(app => {
+      const matched = isTocMatch(app, matchRecords);
+      const item = createTocItem(app, { kind: 'appendix' });
+      if (matchRecords && !matched) item.classList.add('hidden');
+      if (matchRecords && matched) item.classList.add('match');
+      appendixGroup.appendChild(item);
+    });
+    container.appendChild(appendixGroup);
+  }
   applyTocFilter();
 }
 function applyTocFilter() {
@@ -941,13 +1000,13 @@ function showWelcome() {
     <div class="welcome-screen" tabindex="-1">
       <div class="icon">📖</div>
       <h2>Tra cứu Thông tư 14</h2>
-      <p>Ứng dụng được hoàn thiện theo phong cách của file index: đọc điều khoản rõ ràng, tìm live nhanh, dùng tốt trên điện thoại và vẫn tra cứu được phụ lục.</p>
+      <p>Ứng dụng hỗ trợ tra cứu Thông tư 14/2026/TT-BCA, đọc điều khoản rõ ràng, tìm live nhanh, dùng tốt trên điện thoại và mở trực tiếp từng phụ lục ngay trong mục lục.</p>
       <div class="quick-chips" id="quickChips"></div>
       <div class="quick-tips">
         <div class="tip-card"><h4>🔍 Tìm tương tự</h4><p>Gõ không dấu như <em>“kiem soat an ninh”</em>, <em>“khu vuc han che”</em>; ứng dụng tự tìm nội dung có dấu.</p></div>
         <div class="tip-card"><h4>🎯 Tìm chính xác</h4><p>Gõ đúng tiếng Việt có dấu để tra cụm từ pháp lý chính xác trong văn bản.</p></div>
         <div class="tip-card"><h4>📱 Tối ưu điện thoại</h4><p>Thanh tìm kiếm lớn, kết quả dễ bấm, mục lục mở dạng ngăn kéo, có nút copy và tăng cỡ chữ khi đọc.</p></div>
-        <div class="tip-card"><h4>📎 Thông tư + phụ lục</h4><p>Lọc theo nguồn dữ liệu để tìm trong Thông tư chính hoặc từng phụ lục khi cần.</p></div>
+        <div class="tip-card"><h4>📎 Thông tư + phụ lục</h4><p>Mục lục đã có nhóm phụ lục riêng; mỗi phụ lục bấm mở giống như một điều khoản.</p></div>
       </div>
     </div>`;
   renderQuickChips();
@@ -973,7 +1032,7 @@ function renderResults(results, query) {
   const sourceName = sourceFilter === 'all' ? 'tất cả dữ liệu' : (DATA.sources.find(s => s.id === sourceFilter)?.title || 'nguồn đã chọn');
   let html = `<div class="search-results" tabindex="-1"><div class="result-count-label"><span>Tìm thấy <strong>${results.length}</strong> mục trong <strong>${escapeHtml(shortSource(sourceName))}</strong> với từ khóa <strong>"${escapeHtml(query)}"</strong></span><button type="button" class="action-btn" onclick="clearSearch()">Xóa tìm kiếm</button></div>`;
   results.forEach(r => {
-    const badge = r.sourceId === MAIN_SOURCE_ID ? ('Điều ' + r.article) : (r.type === 'Trang phụ lục' && r.page ? ('Trang ' + r.page) : 'Phụ lục');
+    const badge = r.sourceId === MAIN_SOURCE_ID ? ('Điều ' + r.article) : (r.type === 'Trang phụ lục' && r.page ? ('Trang ' + r.page) : getAppendixBadge(r));
     const chapter = r.sourceId === MAIN_SOURCE_ID ? (r.chapter_full || r.chapter) : shortSource(r.source);
     const excerpt = makeExcerpt(r, query);
     html += `<article class="result-card" onclick="showRecord('${escapeHtml(r.id)}')">
@@ -993,19 +1052,28 @@ function showRecord(id) {
   const r = RECORDS.find(x => x.id === id);
   if (!r) return;
   currentRecordId = id;
-  document.querySelectorAll('.article-item').forEach(el => el.classList.toggle('active', Number(el.dataset.article) === Number(r.article) && r.sourceId === MAIN_SOURCE_ID));
+  document.querySelectorAll('.article-item').forEach(el => {
+    const sameRecord = el.dataset.recordId === r.id;
+    const sameAppendix = r.sourceId !== MAIN_SOURCE_ID && el.dataset.type === 'appendix' && el.dataset.sourceId === r.sourceId;
+    el.classList.toggle('active', sameRecord || sameAppendix);
+  });
   const activeItem = document.querySelector('.article-item.active');
   if (activeItem) activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  const idx = MAIN_ARTICLES.findIndex(a => a.id === r.id);
-  const prev = idx > 0 ? MAIN_ARTICLES[idx - 1] : null;
-  const next = idx >= 0 && idx < MAIN_ARTICLES.length - 1 ? MAIN_ARTICLES[idx + 1] : null;
   const isArticle = r.sourceId === MAIN_SOURCE_ID;
-  const badge = isArticle ? `ĐIỀU ${escapeHtml(r.article)}` : `${escapeHtml(r.type || 'PHỤ LỤC')}${r.page ? ' · TRANG ' + escapeHtml(r.page) : ''}`;
+  const isAppendix = !isArticle && r.type === 'Phụ lục';
+  const navList = isArticle ? MAIN_ARTICLES : (isAppendix ? APPENDIX_RECORDS : []);
+  const idx = navList.findIndex(a => a.id === r.id);
+  const prev = idx > 0 ? navList[idx - 1] : null;
+  const next = idx >= 0 && idx < navList.length - 1 ? navList[idx + 1] : null;
+  const badge = isArticle ? `ĐIỀU ${escapeHtml(r.article)}` : (isAppendix ? escapeHtml(getAppendixBadge(r)) : `${escapeHtml(r.type || 'PHỤ LỤC')}${r.page ? ' · TRANG ' + escapeHtml(r.page) : ''}`);
   const sourceTag = isArticle ? escapeHtml(r.chapter_full || r.chapter) : escapeHtml(r.source || 'Phụ lục');
   const sectionTag = r.section_full || r.section ? `<span class="tag">${escapeHtml(r.section_full || r.section)}</span>` : '';
   const bodyHtml = formatBody(r.text || '', lastQuery);
   const backBtn = lastResults.length ? '<button type="button" class="action-btn" onclick="renderResults(lastResults, lastQuery)">← Kết quả</button>' : '';
+  const navHtml = isArticle
+    ? `<div class="art-nav"><button type="button" class="art-nav-btn" onclick="showRecord('${prev ? prev.id : r.id}')" ${!prev ? 'disabled' : ''}>← ${prev ? 'Điều ' + prev.article : 'Đầu văn bản'}</button><button type="button" class="art-nav-btn" onclick="showRecord('${next ? next.id : r.id}')" ${!next ? 'disabled' : ''}>${next ? 'Điều ' + next.article : 'Cuối văn bản'} →</button></div>`
+    : (isAppendix ? `<div class="art-nav"><button type="button" class="art-nav-btn" onclick="showRecord('${prev ? prev.id : r.id}')" ${!prev ? 'disabled' : ''}>← ${prev ? getAppendixBadge(prev) : 'Đầu phụ lục'}</button><button type="button" class="art-nav-btn" onclick="showRecord('${next ? next.id : r.id}')" ${!next ? 'disabled' : ''}>${next ? getAppendixBadge(next) : 'Cuối phụ lục'} →</button></div>` : '');
 
   $('mainContent').innerHTML = `
     <div class="article-view" tabindex="-1">
@@ -1027,7 +1095,7 @@ function showRecord(id) {
         <button type="button" class="action-btn" onclick="window.print()">🖨 In/PDF</button>
       </div>
       <div class="art-body" id="currentBody">${bodyHtml || '<p><em>Không có nội dung chi tiết.</em></p>'}</div>
-      ${isArticle ? `<div class="art-nav"><button type="button" class="art-nav-btn" onclick="showRecord('${prev ? prev.id : r.id}')" ${!prev ? 'disabled' : ''}>← ${prev ? 'Điều ' + prev.article : 'Đầu văn bản'}</button><button type="button" class="art-nav-btn" onclick="showRecord('${next ? next.id : r.id}')" ${!next ? 'disabled' : ''}>${next ? 'Điều ' + next.article : 'Cuối văn bản'} →</button></div>` : ''}
+      ${navHtml}
     </div>`;
   focusContentNow('.article-view');
   setMobileActive('content');
@@ -1059,8 +1127,12 @@ function runSearch(reason = 'live') {
   setLiveStatus('Đang tìm live...', 'searching');
   const results = searchRecords(query);
   lastResults = results;
-  const mainMatches = new Set(results.filter(r => r.sourceId === MAIN_SOURCE_ID).map(r => Number(r.article)));
-  buildSidebar(mainMatches.size ? mainMatches : null);
+  const tocMatches = new Set();
+  results.forEach(r => {
+    tocMatches.add(r.id);
+    if (r.sourceId !== MAIN_SOURCE_ID) tocMatches.add(r.sourceId);
+  });
+  buildSidebar(tocMatches.size ? tocMatches : null);
   $('resultCount').textContent = results.length + ' kết quả';
   $('resultCount').className = 'search-result-count' + (results.length ? ' has-results' : '');
   renderResults(results, query);
